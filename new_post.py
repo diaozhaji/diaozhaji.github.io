@@ -59,13 +59,13 @@ def create_post_html(slug, title, date_str, tags, body_html):
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>{title} · shxiacc的博客</title>
+  <title>{title} · diaozhaji的博客</title>
   <link rel="stylesheet" href="../assets/css/style.css">
 </head>
 <body>
   <header>
     <div class="header-inner">
-      <a href="/" class="logo">shxiacc<span>.</span></a>
+      <a href="/" class="logo">diaozhaji<span>.</span></a>
       <nav>
         <a href="/">首页</a>
         <a href="../about.html">关于</a>
@@ -86,7 +86,7 @@ def create_post_html(slug, title, date_str, tags, body_html):
   </main>
 
   <footer>
-    <p>© 2026 shxiacc的博客 · 用 ❤️ 和 AI 创作</p>
+    <p>© 2026 diaozhaji的博客 · 用 ❤️ 和 AI 创作</p>
   </footer>
 </body>
 </html>

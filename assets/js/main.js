@@ -1,4 +1,4 @@
-// shxiacc的博客 — 文章加载
+// diaozhaji的博客 — 文章加载
 (async function() {
   const list = document.getElementById('postList');
   if (!list) return;
