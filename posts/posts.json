@@ -5,5 +5,12 @@
     "date": "2026-07-26",
     "summary": "这是我的第一篇博客。用 GitHub Pages 搭建的个人博客，自由、开放、没人能锁。",
     "tags": ["博客", "开篇"]
+  },
+  {
+    "slug": "github博客test",
+    "title": "github博客test",
+    "date": "2026-07-29",
+    "summary": "第一次，试试",
+    "tags": ["test"]
   }
 ]
