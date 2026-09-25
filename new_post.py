@@ -86,7 +86,7 @@ def create_post_html(slug, title, date_str, tags, body_html):
   </main>
 
   <footer>
-    <p>© 2026 diaozhaji的博客 · 用 ❤️ 和 AI 创作</p>
+    <p>© 2026 diaozhaji的博客</p>
   </footer>
 </body>
 </html>
