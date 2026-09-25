@@ -1,0 +1,227 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>本地跑大模型为什么显卡没感觉却快不起来——显存带宽、MoE陷阱与模型选型实战笔记 · diaozhaji的博客</title>
+  <link rel="stylesheet" href="../assets/css/style.css">
+</head>
+<body>
+  <header>
+    <div class="header-inner">
+      <a href="/" class="logo">diaozhaji<span>.</span></a>
+      <nav>
+        <a href="/">首页</a>
+        <a href="../about.html">关于</a>
+      </nav>
+    </div>
+  </header>
+
+  <main class="container">
+    <article>
+      <div class="post-header">
+        <h1>本地跑大模型为什么显卡没感觉却快不起来——显存带宽、MoE陷阱与模型选型实战笔记</h1>
+        <div class="post-meta">📅 2026-09-26 &nbsp;·&nbsp; 🏷️ 大模型 · GPU · 显存带宽 · MoE · 模型选型 · 本地部署</div>
+      </div>
+      <div class="post-content">
+<blockquote>
+<p>从 3060 实测 50 tok/s 出发，讲清 LLM 推理的瓶颈到底在哪：带宽、MoE 的真相，以及"编程/Agent 该选什么模型、配什么卡"。</p>
+</blockquote>
+<hr>
+<h2>1. 一个典型困惑</h2>
+<p>我有一台台式机：5700X + 8G 内存 + RTX 3060 12G + 1T 硬盘。本地跑 9B 级模型，任务管理器显示<strong>内存快满了，但"3D"那一栏 GPU 使用率只有 9%</strong>，而显存用了 7.4G/12G，速度约 50 token/s。</p>
+<p>直觉上"显卡没在干活"？其实正好相反——<strong>显卡一直在满负荷，只是你看错了指标，而且瓶颈压根不在算力上</strong>。</p>
+<h2>2. 核心结论：LLM 生成速度 ≈ 显存带宽 ÷ 模型权重大小</h2>
+<p>LLM 每生成一个 token，都要把模型的<strong>全部权重从显存搬运到计算核心</strong>做一次矩阵乘法。也就是说：</p>
+<ul>
+<li>每出一个字 = 完整读一遍模型权重</li>
+<li>速度 = 显存带宽能搬多少 ÷ 权重有多大</li>
+</ul>
+<pre class="codehilite"><code class="language-text">decode 速度 ≈ 显存带宽 ÷ 每 token 读取的权重大小
+</code></pre>
+
+<p>实测验证：3060 带宽 360 GB/s，跑 9B Q4（权重约 5.5GB），理论上限 360÷5.5 ≈ 65 tok/s，实际 50 tok/s，效率约 77%——合理。</p>
+<p>这就是为什么<strong>显卡越跑越快跟"算力"关系不大，瓶颈在"搬货的速度"（带宽）</strong>。游戏卡拼算力，LLM 卡拼带宽。</p>
+<h2>3. "3D 栏 9%"是错觉，LLM 走的是 Compute</h2>
+<p>Windows 任务管理器 GPU 那一栏展开后有多个引擎：3D、Copy、Compute、Video。<strong>LLM 推理走 CUDA 计算核心，对应的是 Compute 栏</strong>；3D 栏是图形渲染管线，跟推理无关。</p>
+<p>看真实利用率请用：</p>
+<pre class="codehilite"><code class="language-text">nvidia-smi        # 看 GPU-Util % 和显存占用
+GPU-Z / HWiNFO    # 各引擎实时利用率
+</code></pre>
+
+<p>另外，单用户聊天是"逐 token 生成"，GPU 忙几十毫秒就闲下来等输入，<strong>平均利用率本来就不高</strong>；而 prefill（处理你输入的那段）是计算密集的，会把 CUDA 拉到 90%+，你看到的"95%"大概率就是它。</p>
+<h2>4. 为什么系统内存会"满"</h2>
+<p>8GB 物理内存跑模型本来就小。三个叠加原因：</p>
+<ol>
+<li>Windows + 后台程序本身就吃掉 3-4G</li>
+<li>模型没有 100% offload 到显存时，部分层权重驻留系统内存</li>
+<li>Windows WDDM 会在系统内存里给独显预留"共享显存"预算（12G 卡通常留 6~7G 的虚拟共享池）</li>
+</ol>
+<p><strong>加内存提升的是整机流畅度和能加载更大模型，但几乎不影响 token/s</strong>（decode 速度由显存带宽决定）。</p>
+<h2>5. 主流显卡"跑 LLM 的价值"对比</h2>
+<table>
+<thead>
+<tr>
+<th>卡</th>
+<th>显存</th>
+<th>带宽</th>
+<th>备注</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>RTX 3060 12G</td>
+<td>12G</td>
+<td>360 GB/s</td>
+<td>9B Q4 ≈ 50 tok/s，够用但带宽低</td>
+</tr>
+<tr>
+<td>RTX 3080 12G</td>
+<td>12G</td>
+<td>912 GB/s</td>
+<td>带宽 2.5 倍，但 12G 装不下 27B Q4</td>
+</tr>
+<tr>
+<td><strong>RTX 3090 24G</strong></td>
+<td>24G</td>
+<td>936 GB/s</td>
+<td>27B Q4 ≈ 60 tok/s，个人跑 27B 性价比甜点</td>
+</tr>
+<tr>
+<td>RTX 4090</td>
+<td>24G</td>
+<td>1008 GB/s</td>
+<td>比 3090 略快，贵得多</td>
+</tr>
+<tr>
+<td>5090 笔记本</td>
+<td>24G</td>
+<td>~1500 GB/s</td>
+<td>快但整机 2.5 万+，不值</td>
+</tr>
+<tr>
+<td>DGX Spark</td>
+<td>128G 统一内存</td>
+<td>273 GB/s</td>
+<td>容量巨大但带宽低，跑 27B 反而只有 ~18 tok/s</td>
+</tr>
+</tbody>
+</table>
+<p><strong>结论：想流畅跑 27B 级稠密模型，24G 显存起步；性价比路线就是二手 3090 + 850W 电源。</strong></p>
+<h2>6. MoE 能"又快又大"吗？——快，但分场景</h2>
+<p>MoE（混合专家）总参数大、每次只激活一部分专家：</p>
+<ul>
+<li><strong>decode 速度看激活参数</strong>：Qwen3-30B-A3B（总 30B/激活 3B）Q4 权重 18GB，但每个字只搬"激活 3B + 共享层"，理论速度 936÷2.8GB ≈ 300+ tok/s，实际 100-150</li>
+<li><strong>显存占用看总参数</strong>：专家得全放显存，24G 才装得下</li>
+<li><strong>prefill 和共享层仍是稠密的</strong>，不省算力</li>
+</ul>
+<p><strong>但"快"不等于"强"</strong>：编程/Agent 这类任务需要<strong>单步深度推理</strong>（长链条上下文、跨文件逻辑），激活参数只有 3B 的 MoE 每次"同时在线"的脑容量太小，实战编程远不如同代的 27B 稠密模型。</p>
+<h2>7. 编程/Agent 场景：27B 稠密 vs 30B MoE 的正式评分</h2>
+<p>拿官方数据说话（来源：千问官方、公开评测）：</p>
+<table>
+<thead>
+<tr>
+<th>指标</th>
+<th>Qwen3.8-27B（稠密）</th>
+<th>Qwen3-30B-A3B（MoE）</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>SWE-bench Pro（真实 Issue 修复）</td>
+<td><strong>61.7</strong>（超 Claude Opus 4.6 Max 的 53.4）</td>
+<td>上一代通用档，明显更低</td>
+</tr>
+<tr>
+<td>Agent 智能指数</td>
+<td><strong>52</strong>（对标 GPT-5.6 Luna / DeepSeek V4 Flash）</td>
+<td>无同源亮眼数据</td>
+</tr>
+<tr>
+<td>OSWorld-Verified（电脑操作）</td>
+<td><strong>84.3</strong></td>
+<td>—</td>
+</tr>
+<tr>
+<td>多模态 Agent</td>
+<td>原生（视觉→操作）</td>
+<td>不支持</td>
+</tr>
+<tr>
+<td>架构</td>
+<td>稠密 27B，全量激活</td>
+<td>MoE，激活仅 3B</td>
+</tr>
+</tbody>
+</table>
+<p>结论：<strong>编程和 Agent 能力，27B 稠密是碾压级</strong>，且有正式评分背书。MoE 的速度换不来编程的准。</p>
+<h2>8. 轻量档：Gemma 4 E4B（我本地也在跑）</h2>
+<ul>
+<li>总参数 <strong>8B</strong>，有效参数 <strong>4.5B</strong>（"E"=Effective，Per-Layer Embeddings 技术），42 层，128K 上下文</li>
+<li>不是经典 MoE，是"每层嵌入复用"降有效参数</li>
+<li>定位端侧/轻量：聊天、轻量文本、OCR、语音</li>
+</ul>
+<p>3060 跑它的理论上限（按量化位）：</p>
+<table>
+<thead>
+<tr>
+<th>量化</th>
+<th>理论</th>
+<th>实际预期</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Q4</td>
+<td>~160 tok/s</td>
+<td>110-130</td>
+</tr>
+<tr>
+<td>Q8</td>
+<td>~80 tok/s</td>
+<td>60-70</td>
+</tr>
+<tr>
+<td>FP16</td>
+<td>~40 tok/s</td>
+<td>30-35</td>
+</tr>
+</tbody>
+</table>
+<h2>9. 最后的选择建议</h2>
+<table>
+<thead>
+<tr>
+<th>用途</th>
+<th>推荐组合</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>本地轻量问答/文本</td>
+<td>3060 够了，跑 Gemma 4 E4B Q4（100+ tok/s）</td>
+</tr>
+<tr>
+<td>编程 / Agent / 27B 稠密</td>
+<td><strong>3090 24G + 850W 电源</strong>，跑 Qwen3.8-27B 量化版（~60 tok/s）</td>
+</tr>
+<tr>
+<td>只想更快的小模型</td>
+<td>3090 跑 30B-A3B 可达 100+ tok/s（但编程弱）</td>
+</tr>
+<tr>
+<td>追求模型上限</td>
+<td>直接上云端 API（DeepSeek/Qwen 端点），比本地买卡划算</td>
+</tr>
+</tbody>
+</table>
+<p><strong>一句话：带宽决定速度，激活参数决定"快不快的上限"，但稠密模型决定"难任务的下限"。</strong> 编程/Agent 选 27B 稠密 + 24G 显存，这是个人电脑跑大模型最务实的解。</p>
+      </div>
+    </article>
+  </main>
+
+  <footer>
+    <p>© 2026 diaozhaji的博客 · 用 ❤️ 和 AI 创作</p>
+  </footer>
+</body>
+</html>
